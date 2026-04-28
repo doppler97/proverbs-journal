@@ -9,19 +9,19 @@
 <!-- ✅ Firebase SDK -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, query, where, orderBy, onSnapshot }
+  import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, where, orderBy, onSnapshot }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
   // ════════════════════════════════════════════════════════
   // 🔧 여기에 Firebase 설정값을 붙여넣으세요
   // ════════════════════════════════════════════════════════
   const firebaseConfig = {
-    apiKey:            "AIzaSyDhq1tr8yCEBfTDvITud8ekWYdWZTqyTT4",
-    authDomain:        "proverbs-journal.firebaseapp.com",
-    projectId:         "proverbs-journal",
-    storageBucket:     "proverbs-journal.firebasestorage.app",
-    messagingSenderId: "336135565268",
-    appId:             "1:336135565268:web:dce3ee9c7e4db34d083041"
+    apiKey:            "여기에_붙여넣기",
+    authDomain:        "여기에_붙여넣기",
+    projectId:         "여기에_붙여넣기",
+    storageBucket:     "여기에_붙여넣기",
+    messagingSenderId: "여기에_붙여넣기",
+    appId:             "여기에_붙여넣기"
   };
   // ════════════════════════════════════════════════════════
 
@@ -31,6 +31,7 @@
   // DB 함수들을 전역으로 노출
   window._db = db;
   window._fbAdd    = (col, data) => addDoc(collection(db, col), data);
+  window._fbUpdate = (col, id, data) => updateDoc(doc(db, col, id), data);
   window._fbGetAll = (col) => getDocs(collection(db, col));
   window._fbDel    = (col, id) => deleteDoc(doc(db, col, id));
   window._fbQuery  = (col, field, val) => getDocs(query(collection(db, col), where(field, "==", val), orderBy("date", "desc")));
@@ -195,16 +196,11 @@
   .empty-icon{font-size:48px;margin-bottom:1rem;}
   .empty-text{font-size:15px;}
 
-  .toggle-wrap{display:flex;align-items:center;gap:8px;}
-  .toggle-switch{position:relative;width:44px;height:24px;}
-  .toggle-switch input{opacity:0;width:0;height:0;}
-  .toggle-slider{position:absolute;cursor:pointer;inset:0;background:var(--border2);border-radius:24px;transition:.2s;}
-  .toggle-slider:before{content:"";position:absolute;width:18px;height:18px;left:3px;bottom:3px;background:white;border-radius:50%;transition:.2s;}
-  .toggle-switch input:checked + .toggle-slider{background:var(--teal);}
-  .toggle-switch input:checked + .toggle-slider:before{transform:translateX(20px);}
-  .toggle-label{font-size:13px;color:var(--text2);}
-  .toggle-label.public{color:var(--teal);font-weight:500;}
-  .badge-private{background:#F3F3F3;color:var(--text3);border:1px solid var(--border2);}
+  .btn-edit { background:transparent; border:1px solid var(--purple-mid); color:var(--purple); font-size:12px; padding:3px 10px; border-radius:4px; cursor:pointer; font-family:'Noto Sans KR',sans-serif; margin-right:4px; }
+  .btn-edit:hover { background:var(--purple-light); }
+  .edit-mode-banner { background:var(--amber-light); border:1px solid var(--amber); border-radius:var(--radius-sm); padding:10px 16px; margin-bottom:16px; font-size:13px; color:var(--amber); display:none; align-items:center; justify-content:space-between; }
+  .edit-mode-banner.active { display:flex; }
+  .edit-cancel-btn { background:transparent; border:1px solid var(--amber); color:var(--amber); font-size:12px; padding:4px 12px; border-radius:4px; cursor:pointer; font-family:'Noto Sans KR',sans-serif; }
 
   @media(max-width:768px){
     .sidebar{display:none;}
@@ -294,6 +290,12 @@
         <div class="bible-links" id="bible-links"></div>
         <div id="analysis-content"></div>
       </div>
+      <!-- 수정 모드 배너 -->
+      <div class="edit-mode-banner" id="edit-banner">
+        <span>✏️ <strong id="edit-banner-text"></strong> 수정 중</span>
+        <button class="edit-cancel-btn" onclick="cancelEdit()">수정 취소</button>
+      </div>
+
       <div class="card">
         <div class="card-title">묵상 기록</div>
         <div class="field"><div class="field-label">오늘의 핵심 구절</div>
@@ -321,15 +323,7 @@
           </div>
         </div>
       </div>
-      <div class="btn-row" style="align-items:center;">
-        <div class="toggle-wrap">
-          <label class="toggle-switch">
-            <input type="checkbox" id="f-public" checked onchange="updatePrivacyLabel()">
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="toggle-label public" id="privacy-label">공개</span>
-        </div>
-        <div style="flex:1;"></div>
+      <div class="btn-row">
         <button class="btn-secondary" onclick="clearForm()">초기화</button>
         <button class="btn-primary" id="btn-save" onclick="saveEntry()">저장하기</button>
       </div>
@@ -383,6 +377,7 @@ var myEntries = [];
 var allEntries = [];   // 모든 멤버 기록
 var fbReady = false;
 var selectedMember = 'all';
+var editingId = null;  // 수정 중인 항목 ID (null이면 새 작성)
 
 // ══════════════════════════════════════════════════════════
 // LOGIN
@@ -433,13 +428,6 @@ function startApp() {
   } else {
     document.addEventListener('firebase-ready', initFirebase);
   }
-
-  // Firebase 미설정 감지 (3초 후에도 연결 안 되면 경고)
-  setTimeout(function() {
-    if (!fbReady) {
-      showToast('⚠️ Firebase 미연결 — 설정값을 확인해주세요');
-    }
-  }, 3000);
 }
 
 function initFirebase() {
@@ -476,7 +464,10 @@ function showPage(p) {
 // ══════════════════════════════════════════════════════════
 function resetSaveBtn() {
   var btn = document.getElementById('btn-save');
-  if (btn) { btn.disabled = false; btn.textContent = '저장하기'; }
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = editingId ? '수정 완료' : '저장하기';
+  }
 }
 
 async function saveEntry() {
@@ -487,7 +478,8 @@ async function saveEntry() {
   if (!fbReady) { showToast('Firebase 연결 중입니다. 잠시 후 시도해주세요'); return; }
 
   var btn = document.getElementById('btn-save');
-  btn.disabled = true; btn.textContent = '저장 중...';
+  btn.disabled = true;
+  btn.textContent = editingId ? '수정 중...' : '저장 중...';
 
   // 안전장치: 12초 후 버튼 강제 복구
   var safetyTimer = setTimeout(function() {
@@ -495,22 +487,30 @@ async function saveEntry() {
     showToast('응답이 없습니다. 네트워크를 확인해주세요.');
   }, 12000);
 
+  var entryData = {
+    username: currentUser,
+    date: date,
+    chapter: parseInt(ch),
+    verse: document.getElementById('f-verse').value.trim(),
+    meditation: med,
+    apply: document.getElementById('f-apply').value.trim(),
+    prayer: document.getElementById('f-prayer').value.trim(),
+    mood: document.getElementById('f-mood').value,
+    stars: starVal,
+    updatedAt: Date.now()
+  };
+
   try {
-    var entry = {
-      username: currentUser,
-      date: date,
-      chapter: parseInt(ch),
-      verse: document.getElementById('f-verse').value.trim(),
-      meditation: med,
-      apply: document.getElementById('f-apply').value.trim(),
-      prayer: document.getElementById('f-prayer').value.trim(),
-      mood: document.getElementById('f-mood').value,
-      stars: starVal,
-      isPublic: document.getElementById('f-public').checked,
-      createdAt: Date.now()
-    };
-    await window._fbAdd('entries', entry);
-    showToast('묵상이 저장되었습니다 🙏');
+    if (editingId) {
+      // 수정 모드 — 기존 문서 업데이트
+      await window._fbUpdate('entries', editingId, entryData);
+      showToast('묵상이 수정되었습니다 ✏️');
+    } else {
+      // 신규 작성
+      entryData.createdAt = Date.now();
+      await window._fbAdd('entries', entryData);
+      showToast('묵상이 저장되었습니다 🙏');
+    }
     clearForm();
   } catch(err) {
     showToast('저장 실패: ' + (err && err.message ? err.message : '네트워크 오류'));
@@ -518,6 +518,68 @@ async function saveEntry() {
     clearTimeout(safetyTimer);
     resetSaveBtn();
   }
+}
+
+// ══════════════════════════════════════════════════════════
+// EDIT ENTRY — 폼에 기존 내용 불러오기
+// ══════════════════════════════════════════════════════════
+function editEntry(id) {
+  var entry = allEntries.find(function(e){ return e._id === id; });
+  if (!entry) { showToast('기록을 찾을 수 없습니다'); return; }
+  if (entry.username !== currentUser) { showToast('본인 기록만 수정할 수 있습니다'); return; }
+
+  // 수정 모드 진입
+  editingId = id;
+
+  // 오늘 묵상 쓰기 탭으로 이동
+  showPage('write');
+
+  // 폼 채우기
+  document.getElementById('f-date').value = entry.date;
+
+  // 장 선택 (options가 없으면 DOMContentLoaded 후에 채워지므로 잠깐 대기)
+  var chSel = document.getElementById('f-chapter');
+  if (chSel.options.length <= 1) {
+    for (var i = 1; i <= 31; i++) {
+      var o = document.createElement('option');
+      o.value = i; o.textContent = i + '장 (잠언 ' + i + ':1~)';
+      chSel.appendChild(o);
+    }
+  }
+  chSel.value = entry.chapter;
+  loadAnalysis();
+
+  document.getElementById('f-verse').value = entry.verse || '';
+  document.getElementById('f-meditation').value = entry.meditation || '';
+  document.getElementById('f-apply').value = entry.apply || '';
+  document.getElementById('f-prayer').value = entry.prayer || '';
+  document.getElementById('f-mood').value = entry.mood || '';
+
+  // 별점
+  starVal = entry.stars || 0;
+  document.querySelectorAll('.star').forEach(function(s){
+    s.classList.toggle('on', parseInt(s.dataset.v) <= starVal);
+  });
+
+  // 수정 모드 배너 표시
+  var banner = document.getElementById('edit-banner');
+  banner.classList.add('active');
+  document.getElementById('edit-banner-text').textContent =
+    entry.date + ' · 잠언 ' + entry.chapter + '장';
+
+  // 저장 버튼 텍스트 변경
+  document.getElementById('btn-save').textContent = '수정 완료';
+
+  // 화면 상단으로 스크롤
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function cancelEdit() {
+  editingId = null;
+  clearForm();
+  document.getElementById('edit-banner').classList.remove('active');
+  document.getElementById('btn-save').textContent = '저장하기';
+  showToast('수정이 취소되었습니다');
 }
 
 // ══════════════════════════════════════════════════════════
@@ -563,11 +625,8 @@ function renderFriends() {
   document.getElementById('member-tabs-area').innerHTML =
     '<div class="feed-label">멤버 필터</div><div class="member-tabs">' + tabsHtml + '</div>';
 
-  var publicEntries = allEntries.filter(function(e){
-    return e.isPublic !== false || e.username === currentUser;
-  });
-  var toShow = selectedMember === 'all' ? publicEntries :
-    publicEntries.filter(function(e){ return e.username === selectedMember; });
+  var toShow = selectedMember === 'all' ? allEntries :
+    allEntries.filter(function(e){ return e.username === selectedMember; });
   renderEntries('friends-container', toShow, false);
 }
 
@@ -592,13 +651,16 @@ function renderEntries(containerId, list, isMyList) {
     var mood = e.mood ? '<span class="badge badge-teal">' + e.mood + '</span>' : '';
     var privBadge = (e.isPublic === false) ? ' <span class="badge badge-private">🔒 비공개</span>' : '';
     var userBadge = !isMyList ? '<span class="badge badge-purple" style="margin-right:6px;">👤 ' + e.username + '</span>' : '';
-    var delBtn = (e.username === currentUser)
-      ? '<button class="btn-delete" onclick="deleteEntry(\'' + e._id + '\',\'' + e.username.replace(/'/g,"\\'") + '\')">삭제</button>'
-      : '';
     var meditationHtml = e.meditation ? e.meditation.replace(/\n/g, '<br>') : '';
     var applyHtml      = e.apply      ? e.apply.replace(/\n/g, '<br>')      : '';
     var prayerHtml     = e.prayer     ? e.prayer.replace(/\n/g, '<br>')     : '';
     var verseHtml      = e.verse      ? e.verse.replace(/\n/g, '<br>')      : '';
+    var actionBtns = '';
+    if (e.username === currentUser) {
+      actionBtns =
+        '<button class="btn-edit" onclick="editEntry(\'' + e._id + '\')">✏️ 수정</button>' +
+        '<button class="btn-delete" onclick="deleteEntry(\'' + e._id + '\',\'' + e.username.replace(/'/g,"\\'") + '\')">삭제</button>';
+    }
     return '<div class="log-item">' +
       '<div class="log-header">' +
         '<div>' +
@@ -608,7 +670,7 @@ function renderEntries(containerId, list, isMyList) {
             (stars ? '&nbsp;&nbsp;<span class="log-stars">' + stars + '</span>' : '') +
           '</div>' +
         '</div>' +
-        delBtn +
+        '<div style="display:flex;align-items:center;gap:4px;">' + actionBtns + '</div>' +
       '</div>' +
       (e.verse ? '<div class="log-verse">' + verseHtml + '</div>' : '') +
       '<div class="log-body-grid">' +
@@ -623,25 +685,19 @@ function renderEntries(containerId, list, isMyList) {
 }
 
 // ══════════════════════════════════════════════════════════
-// PRIVACY LABEL
-// ══════════════════════════════════════════════════════════
-function updatePrivacyLabel() {
-  var isPublic = document.getElementById('f-public').checked;
-  var lbl = document.getElementById('privacy-label');
-  lbl.textContent = isPublic ? '공개' : '비공개';
-  lbl.className = 'toggle-label' + (isPublic ? ' public' : '');
-}
-
-// ══════════════════════════════════════════════════════════
 // CLEAR FORM
 // ══════════════════════════════════════════════════════════
 function clearForm() {
   ['f-verse','f-meditation','f-apply','f-prayer'].forEach(function(id){ document.getElementById(id).value=''; });
   document.getElementById('f-mood').value = '';
   document.getElementById('f-chapter').value = '';
-  document.getElementById('f-public').checked = true;
-  updatePrivacyLabel();
   document.getElementById('analysis-panel').classList.remove('active');
+  // 수정 모드 초기화
+  editingId = null;
+  var banner = document.getElementById('edit-banner');
+  if (banner) banner.classList.remove('active');
+  var saveBtn = document.getElementById('btn-save');
+  if (saveBtn) saveBtn.textContent = '저장하기';
   starVal = 0;
   document.querySelectorAll('.star').forEach(function(s){ s.classList.remove('on'); });
 }
